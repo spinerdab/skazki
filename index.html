@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Новогодняя жеребьёвка сказок</title>
+<style>
+  :root { --bg:#0f2a2a; --card:#fffaf2; --ink:#2b2522; --accent:#c0392b; --gold:#d9a441; --muted:#7a6f66; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: Georgia, "Times New Roman", serif; background: radial-gradient(circle at 20% 0%, #1d4a46, var(--bg) 60%); color:var(--ink); min-height:100vh; padding:24px 16px 48px; }
+  .wrap { max-width:640px; margin:0 auto; }
+  h1 { color:#fff; text-align:center; font-weight:normal; font-size:28px; margin:8px 0 4px; }
+  .sub { color:#cfe3df; text-align:center; margin:0 0 20px; font-size:15px; }
+  .card { background:var(--card); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+  h2 { margin:0 0 10px; font-size:19px; }
+  label { display:block; font-size:14px; color:var(--muted); margin:12px 0 6px; }
+  textarea, input { width:100%; font:inherit; font-size:15px; padding:10px; border:1px solid #d8cfc4; border-radius:8px; background:#fff; color:var(--ink); }
+  textarea { min-height:110px; resize:vertical; }
+  button { font:inherit; font-size:15px; border:0; border-radius:8px; padding:10px 16px; cursor:pointer; background:var(--accent); color:#fff; }
+  button.secondary { background:#efe6da; color:var(--ink); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px 0; border-top:1px solid #eee3d6; }
+  .row:first-child { border-top:0; }
+  .name { font-size:17px; }
+  .err { color:var(--accent); font-size:14px; margin-top:10px; min-height:1em; }
+  .hint { font-size:13px; color:var(--muted); line-height:1.45; }
+  .tabs { display:flex; gap:8px; justify-content:center; margin-bottom:16px; }
+  .tabs button { background:rgba(255,255,255,.12); color:#fff; }
+  .tabs button.on { background:var(--gold); color:#2b2522; }
+  .reveal { text-align:center; padding:28px 12px; }
+  .reveal .who { color:var(--muted); font-size:16px; }
+  .reveal .tale { font-size:28px; margin:14px 0 6px; color:var(--accent); }
+  .msgbox { width:100%; font-size:13px; min-height:70px; margin-top:6px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎄 Новогодние сказки</h1>
+  <p class="sub">Случайная раздача — никто, даже организатор, не знает, кому что досталось</p>
+
+  <div class="tabs">
+    <button id="tabGet" class="on">Узнать свою сказку</button>
+    <button id="tabSetup">Провести жеребьёвку</button>
+  </div>
+
+  <!-- Режим получения -->
+  <div id="getView">
+    <div class="card">
+      <h2>Вставь свой код</h2>
+      <input id="codeIn" placeholder="Например: NY-…" autocomplete="off">
+      <div style="margin-top:12px"><button id="openBtn">Открыть сказку</button></div>
+      <div class="err" id="getErr"></div>
+    </div>
+    <div class="card reveal hidden" id="revealCard">
+      <div class="who" id="revWho"></div>
+      <div class="tale" id="revTale"></div>
+      <div class="hint">С наступающим! ✨</div>
+    </div>
+  </div>
+
+  <!-- Режим организатора -->
+  <div id="setupView" class="hidden">
+    <div class="card">
+      <h2>Участники и сказки</h2>
+      <label>Имена — по одному в строке (включая себя)</label>
+      <textarea id="namesIn" placeholder="Мама&#10;Папа&#10;Бабушка&#10;Я"></textarea>
+      <label>Сказки — по одной в строке (столько же или больше, чем участников)</label>
+      <textarea id="talesIn" placeholder="Морозко&#10;Снежная королева&#10;Щелкунчик&#10;Двенадцать месяцев"></textarea>
+      <label>Ссылка на эту страницу (необязательно — подставится в сообщение)</label>
+      <input id="linkIn" placeholder="https://claude.ai/…">
+      <div style="margin-top:14px"><button id="drawBtn">🎲 Распределить</button></div>
+      <div class="err" id="setupErr"></div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <h2>Коды готовы</h2>
+      <p class="hint">Сказки уже распределены, но здесь их не видно. Отправь каждому его сообщение. Свой код вставь во вкладке «Узнать свою сказку». Чужие коды не открывай — иначе сюрприз пропадёт 🙂</p>
+      <div id="rows"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const KEY = "snegurochka-2027";
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const ALPH = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // base32 без похожих символов
+
+  function xor(bytes, salt){
+    const k = enc.encode(KEY + salt);
+    return bytes.map((b,i)=> b ^ k[i % k.length] ^ ((i*31+7) & 255));
+  }
+  function b32(bytes){
+    let bits=0, val=0, out="";
+    for (const b of bytes){ val=(val<<8)|b; bits+=8; while(bits>=5){ out+=ALPH[(val>>>(bits-5))&31]; bits-=5; } }
+    if (bits>0) out+=ALPH[(val<<(5-bits))&31];
+    return out;
+  }
+  function unb32(str){
+    let bits=0, val=0; const out=[];
+    for (const ch of str){ const i=ALPH.indexOf(ch); if(i<0) throw 0; val=(val<<5)|i; bits+=5; if(bits>=8){ out.push((val>>>(bits-8))&255); bits-=8; } }
+    return new Uint8Array(out);
+  }
+  function randInt(n){ const a=new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+  function shuffle(arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=randInt(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+  function randSalt(){ let s=""; for(let i=0;i<4;i++) s+=ALPH[randInt(32)]; return s; }
+
+  function makeCode(name, tale){
+    const salt = randSalt();
+    const data = xor(enc.encode(JSON.stringify({n:name,t:tale})), salt);
+    const body = b32(data);
+    return "NY-" + salt + body;
+  }
+  function readCode(code){
+    code = code.trim().toUpperCase().replace(/\s+/g,"");
+    if (code.startsWith("NY-")) code = code.slice(3);
+    const salt = code.slice(0,4), body = code.slice(4);
+    const obj = JSON.parse(dec.decode(xor(unb32(body), salt)));
+    if (!obj || typeof obj.t !== "string") throw 0;
+    return obj;
+  }
+
+  const $ = id => document.getElementById(id);
+  function show(view){
+    $("getView").classList.toggle("hidden", view!=="get");
+    $("setupView").classList.toggle("hidden", view!=="setup");
+    $("tabGet").classList.toggle("on", view==="get");
+    $("tabSetup").classList.toggle("on", view==="setup");
+  }
+  $("tabGet").onclick = ()=>show("get");
+  $("tabSetup").onclick = ()=>show("setup");
+
+  $("openBtn").onclick = ()=>{
+    $("getErr").textContent=""; $("revealCard").classList.add("hidden");
+    try {
+      const o = readCode($("codeIn").value);
+      $("revWho").textContent = (o.n ? o.n + ", тебе" : "Тебе") + " досталась сказка:";
+      $("revTale").textContent = "«" + o.t + "»";
+      $("revealCard").classList.remove("hidden");
+    } catch(e){ $("getErr").textContent = "Код не распознан — проверь, что он скопирован целиком."; }
+  };
+  $("codeIn").addEventListener("keydown", e=>{ if(e.key==="Enter") $("openBtn").click(); });
+
+  function lines(id){ return $(id).value.split("\n").map(s=>s.trim()).filter(Boolean); }
+
+  async function copyText(text, btn, box){
+    try { await navigator.clipboard.writeText(text); const t=btn.textContent; btn.textContent="Скопировано ✓"; setTimeout(()=>btn.textContent=t,1500); }
+    catch(e){ box.classList.remove("hidden"); box.select(); }
+  }
+
+  $("drawBtn").onclick = ()=>{
+    $("setupErr").textContent="";
+    const names = lines("namesIn"), tales = lines("talesIn");
+    if (names.length < 2) { $("setupErr").textContent="Нужно минимум два участника."; return; }
+    if (new Set(names).size !== names.length) { $("setupErr").textContent="Имена повторяются — сделай их разными."; return; }
+    if (tales.length < names.length) { $("setupErr").textContent="Сказок меньше, чем участников."; return; }
+    const picked = shuffle(tales);
+    const link = $("linkIn").value.trim();
+    const rows = $("rows"); rows.innerHTML="";
+    names.forEach((name,i)=>{
+      const code = makeCode(name, picked[i]);
+      const msg = "Привет! 🎄 Тебе выпала новогодняя сказка. " +
+        (link ? "Открой страницу " + link + " и вставь" : "Вставь") +
+        " этот код во вкладке «Узнать свою сказку»:\n" + code;
+      const row = document.createElement("div"); row.className="row"; row.style.flexWrap="wrap";
+      const nm = document.createElement("span"); nm.className="name"; nm.textContent = name;
+      const btns = document.createElement("span"); btns.style.display="flex"; btns.style.gap="6px";
+      const b1 = document.createElement("button"); b1.textContent="Копировать сообщение";
+      const b2 = document.createElement("button"); b2.className="secondary"; b2.textContent="Только код";
+      const box = document.createElement("textarea"); box.className="msgbox hidden"; box.readOnly=true; box.value=msg;
+      b1.onclick = ()=>copyText(msg, b1, box);
+      b2.onclick = ()=>{ box.value=code; copyText(code, b2, box); };
+      btns.append(b1,b2); row.append(nm,btns,box); rows.append(row);
+    });
+    $("resultCard").classList.remove("hidden");
+    $("drawBtn").textContent = "🎲 Перераспределить";
+  };
+})();
+</script>
+</body>
+</html>
